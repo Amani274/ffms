@@ -1,0 +1,5 @@
+# Block dotfiles (.env, .git, ...) and sensitive file types anywhere under the project
+<FilesMatch "^\.(?!htaccess$)|\.(sql|ps1|md|log|lock|example)$">
+  Require all denied
+</FilesMatch>
+Options -Indexes

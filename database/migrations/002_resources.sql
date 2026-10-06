@@ -1,0 +1,184 @@
+-- 002_resources.sql: suppliers, inventory, equipment, labour
+
+CREATE TABLE suppliers (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  farm_id INT UNSIGNED NOT NULL,
+  name VARCHAR(150) NOT NULL,
+  category VARCHAR(40) NOT NULL DEFAULT 'general',
+  contact_person VARCHAR(120) NULL,
+  phone VARCHAR(40) NULL,
+  email VARCHAR(190) NULL,
+  address VARCHAR(255) NULL,
+  rating DECIMAL(2,1) NOT NULL DEFAULT 3.0,
+  status VARCHAR(20) NOT NULL DEFAULT 'active',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_sup_farm FOREIGN KEY (farm_id) REFERENCES farms(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE inventory_items (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  farm_id INT UNSIGNED NOT NULL,
+  name VARCHAR(150) NOT NULL,
+  category VARCHAR(30) NOT NULL,
+  unit VARCHAR(20) NOT NULL DEFAULT 'kg',
+  quantity DECIMAL(12,2) NOT NULL DEFAULT 0,
+  reorder_level DECIMAL(12,2) NOT NULL DEFAULT 0,
+  unit_cost DECIMAL(12,2) NOT NULL DEFAULT 0,
+  expiry_date DATE NULL,
+  storage_location VARCHAR(120) NULL,
+  supplier_id INT UNSIGNED NULL,
+  notes TEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_inv_cat (farm_id, category),
+  CONSTRAINT fk_inv_farm FOREIGN KEY (farm_id) REFERENCES farms(id) ON DELETE CASCADE,
+  CONSTRAINT fk_inv_sup FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE stock_movements (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  item_id INT UNSIGNED NOT NULL,
+  movement_type VARCHAR(10) NOT NULL,
+  quantity DECIMAL(12,2) NOT NULL,
+  unit_cost DECIMAL(12,2) NOT NULL DEFAULT 0,
+  movement_date DATE NOT NULL,
+  reference VARCHAR(120) NULL,
+  notes VARCHAR(255) NULL,
+  user_id INT UNSIGNED NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_sm_item (item_id, movement_date),
+  CONSTRAINT fk_sm_item FOREIGN KEY (item_id) REFERENCES inventory_items(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE equipment (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  farm_id INT UNSIGNED NOT NULL,
+  name VARCHAR(150) NOT NULL,
+  equipment_type VARCHAR(40) NOT NULL,
+  make_model VARCHAR(120) NULL,
+  serial_no VARCHAR(80) NULL,
+  purchase_date DATE NULL,
+  purchase_cost DECIMAL(12,2) NOT NULL DEFAULT 0,
+  salvage_value DECIMAL(12,2) NOT NULL DEFAULT 0,
+  useful_life_years INT NOT NULL DEFAULT 10,
+  total_hours DECIMAL(10,1) NOT NULL DEFAULT 0,
+  service_interval_hours INT NULL,
+  fuel_type VARCHAR(20) NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'operational',
+  notes TEXT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_eq_farm FOREIGN KEY (farm_id) REFERENCES farms(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE workers (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  farm_id INT UNSIGNED NOT NULL,
+  user_id INT UNSIGNED NULL,
+  name VARCHAR(120) NOT NULL,
+  job_title VARCHAR(80) NOT NULL,
+  phone VARCHAR(40) NULL,
+  national_id VARCHAR(40) NULL,
+  hire_date DATE NOT NULL,
+  wage_type VARCHAR(10) NOT NULL DEFAULT 'daily',
+  wage_rate DECIMAL(12,2) NOT NULL DEFAULT 0,
+  status VARCHAR(20) NOT NULL DEFAULT 'active',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_wk_farm FOREIGN KEY (farm_id) REFERENCES farms(id) ON DELETE CASCADE,
+  CONSTRAINT fk_wk_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE equipment_allocations (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  equipment_id INT UNSIGNED NOT NULL,
+  field_id INT UNSIGNED NULL,
+  worker_id INT UNSIGNED NULL,
+  date_from DATE NOT NULL,
+  date_to DATE NULL,
+  purpose VARCHAR(190) NULL,
+  CONSTRAINT fk_ea_eq FOREIGN KEY (equipment_id) REFERENCES equipment(id) ON DELETE CASCADE,
+  CONSTRAINT fk_ea_field FOREIGN KEY (field_id) REFERENCES fields(id) ON DELETE SET NULL,
+  CONSTRAINT fk_ea_worker FOREIGN KEY (worker_id) REFERENCES workers(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE equipment_usage (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  equipment_id INT UNSIGNED NOT NULL,
+  usage_date DATE NOT NULL,
+  hours DECIMAL(6,1) NOT NULL DEFAULT 0,
+  fuel_litres DECIMAL(8,2) NOT NULL DEFAULT 0,
+  fuel_cost DECIMAL(12,2) NOT NULL DEFAULT 0,
+  worker_id INT UNSIGNED NULL,
+  field_id INT UNSIGNED NULL,
+  notes VARCHAR(255) NULL,
+  CONSTRAINT fk_eu_eq FOREIGN KEY (equipment_id) REFERENCES equipment(id) ON DELETE CASCADE,
+  CONSTRAINT fk_eu_worker FOREIGN KEY (worker_id) REFERENCES workers(id) ON DELETE SET NULL,
+  CONSTRAINT fk_eu_field FOREIGN KEY (field_id) REFERENCES fields(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE maintenance_records (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  equipment_id INT UNSIGNED NOT NULL,
+  maintenance_type VARCHAR(20) NOT NULL,
+  scheduled_date DATE NOT NULL,
+  completed_date DATE NULL,
+  cost DECIMAL(12,2) NOT NULL DEFAULT 0,
+  description VARCHAR(255) NULL,
+  next_due_date DATE NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'scheduled',
+  CONSTRAINT fk_mr_eq FOREIGN KEY (equipment_id) REFERENCES equipment(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE worker_attendance (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  worker_id INT UNSIGNED NOT NULL,
+  work_date DATE NOT NULL,
+  status VARCHAR(12) NOT NULL DEFAULT 'present',
+  hours DECIMAL(4,1) NOT NULL DEFAULT 8,
+  notes VARCHAR(190) NULL,
+  UNIQUE KEY uq_att (worker_id, work_date),
+  CONSTRAINT fk_wa_worker FOREIGN KEY (worker_id) REFERENCES workers(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE tasks (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  farm_id INT UNSIGNED NOT NULL,
+  title VARCHAR(190) NOT NULL,
+  description TEXT NULL,
+  field_id INT UNSIGNED NULL,
+  worker_id INT UNSIGNED NULL,
+  due_date DATE NULL,
+  priority VARCHAR(10) NOT NULL DEFAULT 'medium',
+  status VARCHAR(15) NOT NULL DEFAULT 'todo',
+  hours_spent DECIMAL(6,1) NOT NULL DEFAULT 0,
+  output_units DECIMAL(10,2) NOT NULL DEFAULT 0,
+  completed_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_tk_farm FOREIGN KEY (farm_id) REFERENCES farms(id) ON DELETE CASCADE,
+  CONSTRAINT fk_tk_field FOREIGN KEY (field_id) REFERENCES fields(id) ON DELETE SET NULL,
+  CONSTRAINT fk_tk_worker FOREIGN KEY (worker_id) REFERENCES workers(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE worker_reviews (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  worker_id INT UNSIGNED NOT NULL,
+  review_date DATE NOT NULL,
+  rating TINYINT NOT NULL,
+  comments VARCHAR(255) NULL,
+  reviewer_id INT UNSIGNED NULL,
+  CONSTRAINT fk_wr_worker FOREIGN KEY (worker_id) REFERENCES workers(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE payroll_runs (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  worker_id INT UNSIGNED NOT NULL,
+  period_start DATE NOT NULL,
+  period_end DATE NOT NULL,
+  days_worked DECIMAL(5,1) NOT NULL DEFAULT 0,
+  gross_pay DECIMAL(12,2) NOT NULL DEFAULT 0,
+  deductions DECIMAL(12,2) NOT NULL DEFAULT 0,
+  net_pay DECIMAL(12,2) NOT NULL DEFAULT 0,
+  status VARCHAR(10) NOT NULL DEFAULT 'draft',
+  paid_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_pr_worker FOREIGN KEY (worker_id) REFERENCES workers(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -1,0 +1,282 @@
+-- 004_business.sql: sales, procurement, finance, weather, alerts
+
+CREATE TABLE customers (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  farm_id INT UNSIGNED NOT NULL,
+  name VARCHAR(150) NOT NULL,
+  customer_type VARCHAR(15) NOT NULL DEFAULT 'buyer',
+  contact_person VARCHAR(120) NULL,
+  phone VARCHAR(40) NULL,
+  email VARCHAR(190) NULL,
+  address VARCHAR(255) NULL,
+  market_destination VARCHAR(120) NULL,
+  status VARCHAR(15) NOT NULL DEFAULT 'active',
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_cu_farm FOREIGN KEY (farm_id) REFERENCES farms(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE market_prices (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  farm_id INT UNSIGNED NOT NULL,
+  crop_id INT UNSIGNED NOT NULL,
+  market_name VARCHAR(100) NOT NULL,
+  price_date DATE NOT NULL,
+  price_per_kg DECIMAL(10,2) NOT NULL,
+  demand_level VARCHAR(10) NOT NULL DEFAULT 'medium',
+  KEY idx_mp (crop_id, price_date),
+  CONSTRAINT fk_mp_farm FOREIGN KEY (farm_id) REFERENCES farms(id) ON DELETE CASCADE,
+  CONSTRAINT fk_mp_crop FOREIGN KEY (crop_id) REFERENCES crops(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE contracts (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  farm_id INT UNSIGNED NOT NULL,
+  customer_id INT UNSIGNED NULL,
+  supplier_id INT UNSIGNED NULL,
+  contract_type VARCHAR(20) NOT NULL DEFAULT 'offtake',
+  crop_id INT UNSIGNED NULL,
+  quantity_kg DECIMAL(12,2) NULL,
+  price_per_kg DECIMAL(10,2) NULL,
+  start_date DATE NOT NULL,
+  end_date DATE NOT NULL,
+  terms TEXT NULL,
+  status VARCHAR(12) NOT NULL DEFAULT 'active',
+  CONSTRAINT fk_ct_farm FOREIGN KEY (farm_id) REFERENCES farms(id) ON DELETE CASCADE,
+  CONSTRAINT fk_ct_cu FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL,
+  CONSTRAINT fk_ct_sup FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE SET NULL,
+  CONSTRAINT fk_ct_crop FOREIGN KEY (crop_id) REFERENCES crops(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE sales_orders (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  farm_id INT UNSIGNED NOT NULL,
+  customer_id INT UNSIGNED NOT NULL,
+  contract_id INT UNSIGNED NULL,
+  order_no VARCHAR(30) NOT NULL,
+  order_date DATE NOT NULL,
+  delivery_date DATE NULL,
+  status VARCHAR(12) NOT NULL DEFAULT 'pending',
+  total_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
+  notes VARCHAR(255) NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_so_no (order_no),
+  CONSTRAINT fk_so_farm FOREIGN KEY (farm_id) REFERENCES farms(id) ON DELETE CASCADE,
+  CONSTRAINT fk_so_cu FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_so_ct FOREIGN KEY (contract_id) REFERENCES contracts(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE sales_order_items (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  order_id INT UNSIGNED NOT NULL,
+  crop_id INT UNSIGNED NOT NULL,
+  lot_id INT UNSIGNED NULL,
+  quantity_kg DECIMAL(12,2) NOT NULL,
+  unit_price DECIMAL(10,2) NOT NULL,
+  grade VARCHAR(5) NOT NULL DEFAULT 'A',
+  CONSTRAINT fk_soi_o FOREIGN KEY (order_id) REFERENCES sales_orders(id) ON DELETE CASCADE,
+  CONSTRAINT fk_soi_crop FOREIGN KEY (crop_id) REFERENCES crops(id) ON DELETE RESTRICT,
+  CONSTRAINT fk_soi_lot FOREIGN KEY (lot_id) REFERENCES storage_lots(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE invoices (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  farm_id INT UNSIGNED NOT NULL,
+  order_id INT UNSIGNED NOT NULL,
+  invoice_no VARCHAR(30) NOT NULL,
+  issue_date DATE NOT NULL,
+  due_date DATE NOT NULL,
+  amount DECIMAL(14,2) NOT NULL,
+  amount_paid DECIMAL(14,2) NOT NULL DEFAULT 0,
+  status VARCHAR(10) NOT NULL DEFAULT 'unpaid',
+  UNIQUE KEY uq_inv_no (invoice_no),
+  CONSTRAINT fk_in_farm FOREIGN KEY (farm_id) REFERENCES farms(id) ON DELETE CASCADE,
+  CONSTRAINT fk_in_o FOREIGN KEY (order_id) REFERENCES sales_orders(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE payments (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  invoice_id INT UNSIGNED NOT NULL,
+  payment_date DATE NOT NULL,
+  amount DECIMAL(14,2) NOT NULL,
+  method VARCHAR(20) NOT NULL DEFAULT 'bank',
+  reference VARCHAR(80) NULL,
+  CONSTRAINT fk_pay_in FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE dispatches (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  lot_id INT UNSIGNED NOT NULL,
+  order_id INT UNSIGNED NULL,
+  dispatch_date DATE NOT NULL,
+  quantity_kg DECIMAL(12,2) NOT NULL,
+  vehicle VARCHAR(60) NULL,
+  destination VARCHAR(150) NULL,
+  status VARCHAR(12) NOT NULL DEFAULT 'dispatched',
+  CONSTRAINT fk_dp_lot FOREIGN KEY (lot_id) REFERENCES storage_lots(id) ON DELETE CASCADE,
+  CONSTRAINT fk_dp_o FOREIGN KEY (order_id) REFERENCES sales_orders(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE quotations (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  farm_id INT UNSIGNED NOT NULL,
+  supplier_id INT UNSIGNED NOT NULL,
+  description VARCHAR(190) NOT NULL,
+  quantity DECIMAL(12,2) NOT NULL,
+  unit_price DECIMAL(12,2) NOT NULL,
+  valid_until DATE NULL,
+  status VARCHAR(12) NOT NULL DEFAULT 'open',
+  CONSTRAINT fk_qt_farm FOREIGN KEY (farm_id) REFERENCES farms(id) ON DELETE CASCADE,
+  CONSTRAINT fk_qt_sup FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE purchase_orders (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  farm_id INT UNSIGNED NOT NULL,
+  supplier_id INT UNSIGNED NOT NULL,
+  po_no VARCHAR(30) NOT NULL,
+  order_date DATE NOT NULL,
+  expected_date DATE NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'draft',
+  total_amount DECIMAL(14,2) NOT NULL DEFAULT 0,
+  amount_paid DECIMAL(14,2) NOT NULL DEFAULT 0,
+  approved_by INT UNSIGNED NULL,
+  approved_at DATETIME NULL,
+  received_at DATETIME NULL,
+  notes VARCHAR(255) NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_po_no (po_no),
+  CONSTRAINT fk_po_farm FOREIGN KEY (farm_id) REFERENCES farms(id) ON DELETE CASCADE,
+  CONSTRAINT fk_po_sup FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE purchase_order_items (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  po_id INT UNSIGNED NOT NULL,
+  item_id INT UNSIGNED NULL,
+  description VARCHAR(190) NOT NULL,
+  quantity DECIMAL(12,2) NOT NULL,
+  unit_price DECIMAL(12,2) NOT NULL,
+  CONSTRAINT fk_poi_po FOREIGN KEY (po_id) REFERENCES purchase_orders(id) ON DELETE CASCADE,
+  CONSTRAINT fk_poi_item FOREIGN KEY (item_id) REFERENCES inventory_items(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE transactions (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  farm_id INT UNSIGNED NOT NULL,
+  txn_type VARCHAR(10) NOT NULL,
+  category VARCHAR(20) NOT NULL,
+  amount DECIMAL(14,2) NOT NULL,
+  txn_date DATE NOT NULL,
+  description VARCHAR(255) NULL,
+  field_id INT UNSIGNED NULL,
+  crop_id INT UNSIGNED NULL,
+  planting_id INT UNSIGNED NULL,
+  ref_type VARCHAR(30) NULL,
+  ref_id INT UNSIGNED NULL,
+  created_by INT UNSIGNED NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_tx (farm_id, txn_date),
+  KEY idx_tx_ref (ref_type, ref_id),
+  CONSTRAINT fk_tx_farm FOREIGN KEY (farm_id) REFERENCES farms(id) ON DELETE CASCADE,
+  CONSTRAINT fk_tx_field FOREIGN KEY (field_id) REFERENCES fields(id) ON DELETE SET NULL,
+  CONSTRAINT fk_tx_crop FOREIGN KEY (crop_id) REFERENCES crops(id) ON DELETE SET NULL,
+  CONSTRAINT fk_tx_pl FOREIGN KEY (planting_id) REFERENCES plantings(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE budgets (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  farm_id INT UNSIGNED NOT NULL,
+  budget_year SMALLINT NOT NULL,
+  category VARCHAR(20) NOT NULL,
+  amount DECIMAL(14,2) NOT NULL,
+  UNIQUE KEY uq_budget (farm_id, budget_year, category),
+  CONSTRAINT fk_bg_farm FOREIGN KEY (farm_id) REFERENCES farms(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE loans (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  farm_id INT UNSIGNED NOT NULL,
+  lender VARCHAR(150) NOT NULL,
+  purpose VARCHAR(190) NULL,
+  principal DECIMAL(14,2) NOT NULL,
+  interest_rate_pct DECIMAL(5,2) NOT NULL DEFAULT 0,
+  start_date DATE NOT NULL,
+  end_date DATE NOT NULL,
+  balance DECIMAL(14,2) NOT NULL,
+  status VARCHAR(12) NOT NULL DEFAULT 'active',
+  CONSTRAINT fk_ln_farm FOREIGN KEY (farm_id) REFERENCES farms(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE loan_payments (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  loan_id INT UNSIGNED NOT NULL,
+  payment_date DATE NOT NULL,
+  amount DECIMAL(14,2) NOT NULL,
+  notes VARCHAR(190) NULL,
+  CONSTRAINT fk_lnp_ln FOREIGN KEY (loan_id) REFERENCES loans(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE weather_records (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  farm_id INT UNSIGNED NOT NULL,
+  record_date DATE NOT NULL,
+  temp_min_c DECIMAL(4,1) NOT NULL,
+  temp_max_c DECIMAL(4,1) NOT NULL,
+  humidity_pct DECIMAL(4,1) NOT NULL,
+  rainfall_mm DECIMAL(6,1) NOT NULL DEFAULT 0,
+  wind_kph DECIMAL(5,1) NOT NULL DEFAULT 0,
+  conditions VARCHAR(40) NULL,
+  source VARCHAR(20) NOT NULL DEFAULT 'manual',
+  UNIQUE KEY uq_weather (farm_id, record_date),
+  CONSTRAINT fk_wx_farm FOREIGN KEY (farm_id) REFERENCES farms(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE weather_forecasts (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  farm_id INT UNSIGNED NOT NULL,
+  forecast_date DATE NOT NULL,
+  temp_min_c DECIMAL(4,1) NOT NULL,
+  temp_max_c DECIMAL(4,1) NOT NULL,
+  humidity_pct DECIMAL(4,1) NULL,
+  rain_probability_pct DECIMAL(4,1) NOT NULL DEFAULT 0,
+  rainfall_mm DECIMAL(6,1) NOT NULL DEFAULT 0,
+  wind_kph DECIMAL(5,1) NOT NULL DEFAULT 0,
+  conditions VARCHAR(40) NULL,
+  source VARCHAR(20) NOT NULL DEFAULT 'open-meteo',
+  fetched_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_fc (farm_id, forecast_date),
+  CONSTRAINT fk_fc_farm FOREIGN KEY (farm_id) REFERENCES farms(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE alerts (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  farm_id INT UNSIGNED NOT NULL,
+  alert_type VARCHAR(30) NOT NULL,
+  severity VARCHAR(10) NOT NULL DEFAULT 'info',
+  title VARCHAR(190) NOT NULL,
+  message VARCHAR(500) NULL,
+  entity VARCHAR(40) NULL,
+  entity_id INT UNSIGNED NULL,
+  due_date DATE NULL,
+  status VARCHAR(10) NOT NULL DEFAULT 'new',
+  dedupe_key VARCHAR(120) NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  resolved_at DATETIME NULL,
+  UNIQUE KEY uq_alert (farm_id, dedupe_key),
+  KEY idx_alert_status (farm_id, status),
+  CONSTRAINT fk_al_farm FOREIGN KEY (farm_id) REFERENCES farms(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE notification_outbox (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  farm_id INT UNSIGNED NOT NULL,
+  channel VARCHAR(10) NOT NULL,
+  recipient VARCHAR(190) NOT NULL,
+  subject VARCHAR(190) NULL,
+  body VARCHAR(500) NOT NULL,
+  status VARCHAR(12) NOT NULL DEFAULT 'queued',
+  alert_id INT UNSIGNED NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  sent_at DATETIME NULL,
+  CONSTRAINT fk_nb_farm FOREIGN KEY (farm_id) REFERENCES farms(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
