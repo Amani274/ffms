@@ -26,10 +26,7 @@ export default function ReportsPage() {
 
   return (
     <>
-      <PageHead title="Reports & analytics" subtitle="Run any report for a date range, export to CSV or print.">
-        <button className="btn" onClick={() => window.print()}>Print</button>
-        <a className="btn primary" href={api.url(`reports/${sel}`, { ...range, format: 'csv' })}>Export CSV</a>
-      </PageHead>
+      <PageHead title="Reports & analytics" subtitle="Run any report for a date range." />
       <div className="reports-layout">
         <div className="card no-print">
           <ul className="list">

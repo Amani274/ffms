@@ -32,7 +32,7 @@ final class Ledger
 
 final class Stock
 {
-    /** Apply a stock movement atomically. `adjust` sets the counted quantity. Returns [movementId, unitCost]. */
+    /** Apply a stock movement atomically. Returns [movementId, unitCost]. */
     public static function move(int $itemId, string $type, float $qty, string $date, ?string $reference = null, ?string $notes = null, ?float $unitCost = null): array
     {
         $item = Db::one('SELECT * FROM inventory_items WHERE id = ? FOR UPDATE', [$itemId]);
@@ -45,13 +45,11 @@ final class Stock
                 fail(409, sprintf('Insufficient stock for %s: %s %s available, %s requested.', $item['name'], rtrim(rtrim(number_format($current, 2, '.', ''), '0'), '.'), $item['unit'], rtrim(rtrim(number_format($qty, 2, '.', ''), '0'), '.')));
             }
             $new = $current - $qty;
-        } elseif ($type === 'in') {
+        } else {
             $new = $current + $qty;
             if ($unitCost !== null && $unitCost > 0 && $new > 0) {
                 $cost = (($current * (float) $item['unit_cost']) + ($qty * $unitCost)) / $new;
             }
-        } else {
-            $new = $qty;
         }
         Db::update('inventory_items', $itemId, ['quantity' => round($new, 2), 'unit_cost' => round($cost, 2)]);
         $id = Db::insert('stock_movements', [
@@ -126,12 +124,6 @@ final class Hooks
                     }
                 }
                 break;
-            case 'loan_payments':
-                if ($action === 'create') {
-                    $loan = Db::one('SELECT balance FROM loans WHERE id = ? FOR UPDATE', [$d['loan_id']]);
-                    if ((float) $d['amount'] > (float) $loan['balance'] + 0.005) fail(422, 'Please correct the highlighted fields.', ['amount' => 'Exceeds the outstanding loan balance.']);
-                }
-                break;
         }
     }
 
@@ -201,11 +193,6 @@ final class Hooks
                 $inv = Db::one('SELECT farm_id, invoice_no FROM invoices WHERE id = ?', [$row['invoice_id']]);
                 Ledger::post((int) $inv['farm_id'], 'income', 'sales', (float) $row['amount'], $row['payment_date'], 'Payment for ' . $inv['invoice_no'], 'payment', $id);
                 break;
-            case 'loan_payments':
-                self::syncLoan((int) $row['loan_id']);
-                $loan = Db::one('SELECT farm_id, lender FROM loans WHERE id = ?', [$row['loan_id']]);
-                Ledger::post((int) $loan['farm_id'], 'expense', 'loan', (float) $row['amount'], $row['payment_date'], 'Loan repayment: ' . $loan['lender'], 'loan_payment', $id);
-                break;
             case 'harvests':
                 self::afterHarvest($row, $extras, $action);
                 break;
@@ -218,9 +205,6 @@ final class Hooks
             case 'animal_weights':
                 $latest = Db::val('SELECT weight_kg FROM animal_weights WHERE animal_id = ? ORDER BY weigh_date DESC, id DESC LIMIT 1', [$row['animal_id']]);
                 if ($latest !== null) Db::exec('UPDATE animals SET current_weight_kg = ? WHERE id = ?', [$latest, $row['animal_id']]);
-                break;
-            case 'sales_orders':
-                if ($action === 'update' && $row['status'] === 'delivered' && ($old['status'] ?? null) !== 'delivered') Documents::fulfilOrder($id);
                 break;
             case 'sales_order_items':
                 Documents::recalcOrder((int) $row['order_id']);
@@ -248,10 +232,6 @@ final class Hooks
             case 'payments':
                 self::syncInvoice((int) $old['invoice_id']);
                 Ledger::remove('payment', $id);
-                break;
-            case 'loan_payments':
-                self::syncLoan((int) $old['loan_id']);
-                Ledger::remove('loan_payment', $id);
                 break;
             case 'dispatches':
                 Db::exec('UPDATE storage_lots SET quantity_kg = quantity_kg + ? WHERE id = ?', [$old['quantity_kg'], $old['lot_id']]);
@@ -339,14 +319,6 @@ final class Hooks
         $inv = Db::one('SELECT amount, status FROM invoices WHERE id = ?', [$invoiceId]);
         $status = $inv['status'] === 'void' ? 'void' : ($paid <= 0 ? 'unpaid' : ($paid + 0.005 >= (float) $inv['amount'] ? 'paid' : 'partial'));
         Db::update('invoices', $invoiceId, ['amount_paid' => round($paid, 2), 'status' => $status]);
-    }
-
-    private static function syncLoan(int $loanId): void
-    {
-        $loan = Db::one('SELECT principal FROM loans WHERE id = ?', [$loanId]);
-        $paid = (float) Db::val('SELECT IFNULL(SUM(amount),0) FROM loan_payments WHERE loan_id = ?', [$loanId]);
-        $balance = max(0, round((float) $loan['principal'] - $paid, 2));
-        Db::update('loans', $loanId, ['balance' => $balance, 'status' => $balance <= 0 ? 'paid' : 'active']);
     }
 
     private static function syncLotStatus(int $lotId): void

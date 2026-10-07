@@ -1,93 +1,52 @@
 # FFMS — Full Farm Management System
 
-A web platform for running a mixed crop-and-livestock farm: land and crops, irrigation, livestock, inventory,
-equipment, labour, post-harvest storage, sales, procurement, finance, weather, alerts and decision support.
+Web platform for a mixed crop-and-livestock farm, built to the "Full Farm Management System" brief (21 modules).
+PHP 8.2 JSON API · MySQL/MariaDB · React + Vite · Chart.js · Leaflet/OpenStreetMap · rule-based forecasting (no paid AI service).
 
-- **Backend:** PHP 8.2 JSON API (no framework), PDO, MySQL/MariaDB
-- **Frontend:** React 19 + Vite, Chart.js, Leaflet/OpenStreetMap
-- **Intelligence:** transparent rule-based and statistical forecasting (no external AI service needed)
-- **Pattern:** modelled on `hrm-system-main` — API + shared bootstrap, numbered SQL migrations, CLI seed/backup, docs
+## Run locally (XAMPP, Windows)
 
-See [docs/MODULES.md](docs/MODULES.md) for how every module in the project brief maps to the system,
-[docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) for the section-by-section code map and size review, and
-[docs/RENDER_DEPLOYMENT.md](docs/RENDER_DEPLOYMENT.md) to host it on Render.
-
-## Quick start (XAMPP on Windows)
-
-1. Start **Apache** and **MySQL** in the XAMPP control panel. The project lives at `C:\xampp\htdocs\ffms`.
-2. Copy the environment file (defaults suit a stock XAMPP):
-   ```bat
-   copy .env.example .env
-   ```
+1. Start **Apache** and **MySQL** in XAMPP. Project path: `C:\xampp\htdocs\ffms`.
+2. `copy .env.example .env`
 3. Create the database and load demo data:
    ```bat
    C:\xampp\php\php.exe bin\migrate.php
    C:\xampp\php\php.exe bin\seed.php
    ```
-4. Open **http://localhost/ffms/** and sign in with a demo account (password `Farm@Demo2026`):
+4. Open **http://localhost/ffms/** — password for every demo account is `Farm@Demo2026`.
 
-   | Role | Email | Can do |
-   |---|---|---|
-   | Administrator | admin@ffms.test | everything, users, backups |
-   | Owner | owner@ffms.test | all farms, finance, reports, users |
-   | Manager | manager@ffms.test | operations, labour, approvals (Chongwe farm only) |
-   | Agronomist | agronomist@ffms.test | crops, pests, irrigation, soil |
-   | Accountant | accountant@ffms.test | finance, sales, payroll, procurement payments |
-   | Worker | worker@ffms.test | own tasks and field records |
-   | Manager (farm 2) | manager2@ffms.test | demonstrates per-farm data isolation |
+| Role | Email | Access |
+|---|---|---|
+| Administrator | admin@ffms.test | everything, users, backups |
+| Owner | owner@ffms.test | all farms, finance, reports, users |
+| Manager | manager@ffms.test | operations, labour, approvals (Chongwe farm) |
+| Agronomist | agronomist@ffms.test | crops, pests, irrigation, soil |
+| Accountant | accountant@ffms.test | finance, sales, payroll |
+| Worker | worker@ffms.test | own tasks and field records only |
+| Manager, farm 2 | manager2@ffms.test | shows per-farm data isolation |
 
-The built front end is already in `app/`. Rebuild it only if you change `frontend/src` (needs Node 20+):
+`app/` holds the local build of the React front end (the Docker build compiles its own). To change the UI: `cd frontend && npm install && npm run build` (Node 20+). `npm run dev` serves it on :5173 with an API proxy.
 
-```bat
-cd frontend
-npm install
-npm run build
-```
-
-For live front-end development run `npm run dev` (http://localhost:5173) — it proxies `/ffms/api` to Apache.
-
-## Useful commands
+## Commands
 
 | Command | Purpose |
 |---|---|
-| `php bin/migrate.php` | apply pending migrations (`--fresh` drops and recreates the database) |
-| `php bin/seed.php --reset` | wipe all data and reload the demo dataset |
-| `php bin/backup.php` | write a SQL dump to `storage/backups` and prune old ones |
-| `php bin/create-admin.php "Name" email` | create a real administrator (password from `ADMIN_PASSWORD`) without demo data |
-| `powershell -File bin/api-smoke-test.ps1` | 67 end-to-end API checks (auth, validation, workflows, role isolation) |
+| `php bin/migrate.php` | apply migrations (`--fresh` rebuilds the database) |
+| `php bin/seed.php --reset` | wipe and reload the demo data (3 months of history, dated relative to today) |
+| `php bin/backup.php` | SQL dump to `storage/backups` (restore: `mysql -u root ffms < file.sql`) |
+| `php bin/create-admin.php "Name" email` | real administrator (password from `ADMIN_PASSWORD`) |
+| `powershell -File bin/api-smoke-test.ps1` | 67 API checks: auth, validation, workflows, role isolation |
 
-Restore a backup: `mysql -u root ffms < storage\backups\ffms-YYYYMMDD-HHMMSS.sql`
+## Five-minute tour
 
-## Project layout
-
-```text
-api/                 PHP API (index.php router, src/ = engine; src/ is blocked from the web)
-  src/Registry.php     every resource: columns, validation, roles, joins — single source of truth
-  src/Crud.php         generic list/get/create/update/delete with farm + role scoping
-  src/Hooks.php        business rules: stock deduction, ledger posting, payments, harvest→storage
-  src/Documents.php    sales orders, invoices, purchase-order workflow, payroll generation
-  src/Predict.php      yield, price forecast, irrigation/crop recommendations
-  src/Alerts.php       alert engine + notification outbox
-  src/Weather.php      Open-Meteo forecast with offline climatology fallback
-  src/Reports.php      13 reports + CSV export
-database/migrations/ numbered SQL (001 core … 004 business); never edit an applied migration
-bin/                 CLI: migrate, seed, backup, api-smoke-test.ps1
-frontend/            React source;  app/ = production build served by Apache
-docs/                MODULES, ARCHITECTURE, DEMO_GUIDE, LAUNCH_CHECKLIST
-storage/             backups and logs (blocked from the web)
-```
+1. **Owner → Dashboard:** acreage, crops, livestock, harvest, income/expenses/profit, alerts, weather, prices. Switch farms from the top bar.
+2. **Fields & map**, then **Predictions:** open *Why?* on a yield forecast; check the price outlook and recommendations.
+3. **Sales orders → New** (price fills from the market), **Invoice**, then **Invoices → Record payment** — it appears in Finance automatically.
+4. **Scouting → Treat:** stock falls and the cost is posted. **Inventory** shows low-stock items; **Purchase orders** run submit → approve → order → receive → pay.
+5. **Worker login:** only their own tasks, no finance. **Admin → Audit log, Backups.**
 
 ## Configuration (`.env`)
 
-| Key | Default | Meaning |
-|---|---|---|
-| `DB_HOST/PORT/NAME/USER/PASS` | 127.0.0.1 / 3306 / ffms / root / (empty) | MySQL connection |
-| `CORS_ORIGINS` | localhost:5173 | allowed dev-server origins |
-| `SESSION_IDLE_MIN` | 240 | idle logout |
-| `CURRENCY` | ZMW | display currency |
-| `PAYROLL_DEDUCTION_PCT` | 5 | statutory deduction applied when generating payroll |
-| `WEATHER_LIVE` | 1 | 1 = live forecast from Open-Meteo, 0 = offline estimate only |
-| `NOTIFY_DRIVER` | simulate | notifications are logged to the outbox; see the launch checklist to go live |
-| `DEMO_PASSWORD` | Farm@Demo2026 | used by `seed.php` only |
+`DB_HOST/PORT/NAME/USER/PASS` (MySQL) · `DB_SSL` (managed DBs) · `CURRENCY` (display) · `WEATHER_LIVE` (1 = Open-Meteo forecast, 0 = offline estimate) ·
+`SESSION_IDLE_MIN` · `DEMO_PASSWORD` (seed only) · `CORS_ORIGINS` (dev server).
 
-Before any real use read [docs/LAUNCH_CHECKLIST.md](docs/LAUNCH_CHECKLIST.md).
+More: [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md) (code map, brief coverage, size) · [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) (Render, going live, limits).

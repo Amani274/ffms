@@ -127,13 +127,6 @@ switch ($first) {
         $from = preg_match($re, (string) ($_GET['from'] ?? '')) ? $_GET['from'] : gmdate('Y') . '-01-01';
         $to = preg_match($re, (string) ($_GET['to'] ?? '')) ? $_GET['to'] : gmdate('Y-m-d');
         $report = Reports::run($seg[1], $ctx, $from, $to);
-        if (($_GET['format'] ?? '') === 'csv') {
-            Audit::log('export', 'reports', $seg[1], ['from' => $from, 'to' => $to], $user);
-            header('Content-Type: text/csv; charset=utf-8');
-            header('Content-Disposition: attachment; filename="ffms-' . $seg[1] . '-' . $to . '.csv"');
-            echo "\xEF\xBB\xBF" . Reports::csv($report);
-            exit;
-        }
         reply($report);
     case 'sales':
         if (($seg[1] ?? '') === 'orders' && isset($seg[2], $seg[3]) && $seg[3] === 'invoice' && $method === 'POST') Actions::invoiceOrder((int) $seg[2]);
@@ -143,9 +136,6 @@ switch ($first) {
         break;
     case 'payroll':
         if (($seg[1] ?? '') === 'generate' && $method === 'POST') Actions::generatePayroll();
-        break;
-    case 'alerts':
-        if (($seg[1] ?? '') === 'refresh' && $method === 'POST') Actions::refreshAlerts();
         break;
     case 'users':
         Admin::users($method, $seg[1] ?? null);

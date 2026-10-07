@@ -5,7 +5,7 @@ import { useApp } from '../auth';
 import { RESOURCES } from '../resources';
 import { humanize } from '../format';
 import { Confirm, DataTable, Empty, FkSelect, PageHead, ResourceForm, Spinner, clearOptionCache, useAsync } from '../ui';
-import { LinesModal, OrderBuilder, PayModal, PayrollModal } from './Documents';
+import { LinesModal, OrderBuilder, PayModal } from './Documents';
 
 const FK_OF = {
   field_id: 'fields', crop_id: 'crops', planting_id: 'plantings', animal_id: 'animals', worker_id: 'workers', equipment_id: 'equipment', item_id: 'inventory_items',
@@ -95,6 +95,16 @@ export default function ResourcePage({ name: forced }) {
     return out;
   };
 
+  const generatePayroll = async () => {
+    const end = new Date(new Date().getFullYear(), new Date().getMonth(), 0);
+    const start = new Date(end.getFullYear(), end.getMonth(), 1);
+    const f = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    try {
+      const r = await api.post('payroll/generate', { farm_id: farmId, period_start: f(start), period_end: f(end) });
+      done(r.data.created ? `${r.data.created} draft payroll record(s) generated` : 'Payroll for last month already exists');
+    } catch (e) { toast(e.message, 'err'); setModal(null); }
+  };
+
   const remove = async (row) => {
     try { await api.del(`${name}/${row.id}`); done(`${spec.label} deleted`); }
     catch (e) { toast(e.message, 'err'); setModal(null); }
@@ -104,7 +114,7 @@ export default function ResourcePage({ name: forced }) {
   return (
     <>
       <PageHead title={cfg.title} subtitle={cfg.sub}>
-        {cfg.toolbar === 'payroll' && can('payroll_runs', 'create') && <button className="btn" onClick={() => setModal({ type: 'payroll' })}>Generate payroll</button>}
+        {cfg.toolbar === 'payroll' && can('payroll_runs', 'create') && <button className="btn" onClick={() => setModal({ type: 'payroll' })}>Generate last month</button>}
         {spec.create && <button className="btn primary" onClick={() => setModal({ type: cfg.create ? 'builder' : 'create' })}>+ New {spec.label.toLowerCase()}</button>}
       </PageHead>
 
@@ -146,7 +156,7 @@ export default function ResourcePage({ name: forced }) {
       {modal?.type === 'builder' && <OrderBuilder kind={cfg.create} onClose={() => setModal(null)} onSaved={() => done()} />}
       {modal?.type === 'lines' && <LinesModal resource={cfg.detail} keyName={cfg.detailKey} parent={modal.row} title={`${modal.row.order_no || modal.row.po_no} — lines`} onClose={() => setModal(null)} />}
       {modal?.type === 'pay' && <PayModal po={modal.row} onClose={() => setModal(null)} onSaved={() => done()} />}
-      {modal?.type === 'payroll' && <PayrollModal onClose={() => setModal(null)} onSaved={() => done()} />}
+      {modal?.type === 'payroll' && <Confirm title="Generate payroll" confirmLabel="Generate" message="Create draft payroll for every active worker for last month, from attendance. Existing records are not duplicated." onClose={() => setModal(null)} onConfirm={generatePayroll} />}
       {modal?.type === 'confirm' && <Confirm title={modal.action.label} message={modal.action.confirm} danger={modal.action.kind === 'danger'} confirmLabel={modal.action.label} onClose={() => setModal(null)} onConfirm={() => runAction(modal.action, modal.row)} />}
       {modal?.type === 'delete' && <Confirm title="Delete record" danger confirmLabel="Delete" message="This permanently deletes the record. This cannot be undone." onClose={() => setModal(null)} onConfirm={() => remove(modal.row)} />}
     </>

@@ -86,14 +86,11 @@ function PriceTab() {
               {(() => {
                 const hist = f.history.slice(-24);
                 const labels = [...hist.map((h) => monthLabel(h.month)), ...f.forecast.map((x) => monthLabel(x.month))];
-                const pad = (arr, n) => [...Array(n).fill(null), ...arr];
                 const lastH = hist[hist.length - 1].price;
                 return (
                   <LineChart money labels={labels} datasets={[
                     { label: 'Market price', data: [...hist.map((h) => h.price), ...Array(f.forecast.length).fill(null)], borderColor: '#2a8148' },
                     { label: 'Forecast', data: [...Array(hist.length - 1).fill(null), lastH, ...f.forecast.map((x) => x.price)], borderColor: '#e9a23b', borderDash: [6, 4] },
-                    { label: 'Upper band', data: pad(f.forecast.map((x) => x.high), hist.length), borderColor: 'transparent', backgroundColor: '#e9a23b22', fill: '+1', pointRadius: 0 },
-                    { label: 'Lower band', data: pad(f.forecast.map((x) => x.low), hist.length), borderColor: 'transparent', pointRadius: 0 },
                   ]} />
                 );
               })()}
@@ -101,8 +98,8 @@ function PriceTab() {
           </div>
           <div className="card" style={{ marginTop: 14 }}>
             <div className="card-head"><h3>Forecast detail</h3></div>
-            <div className="table-wrap"><table><thead><tr><th>Month</th><th className="num">Expected price / kg</th><th className="num">Likely range (80%)</th></tr></thead>
-              <tbody>{f.forecast.map((x) => <tr key={x.month} style={x.month === f.best_month ? { background: 'var(--green-50)' } : undefined}><td>{monthLabel(x.month)} {x.month === f.best_month && <Badge value="best" kind="ok" label="Best month" />}</td><td className="num mono">{money(x.price, { decimals: 2 })}</td><td className="num mono muted">{money(x.low, { decimals: 2 })} – {money(x.high, { decimals: 2 })}</td></tr>)}</tbody></table></div>
+            <div className="table-wrap"><table><thead><tr><th>Month</th><th className="num">Expected price / kg</th></tr></thead>
+              <tbody>{f.forecast.map((x) => <tr key={x.month} style={x.month === f.best_month ? { background: 'var(--green-50)' } : undefined}><td>{monthLabel(x.month)} {x.month === f.best_month && <Badge value="best" kind="ok" label="Best month" />}</td><td className="num mono">{money(x.price, { decimals: 2 })}</td></tr>)}</tbody></table></div>
             <div className="muted" style={{ padding: '10px 18px 14px', fontSize: 12.5 }}>Method: {f.method}. Forecasts are decision support, not guarantees.</div>
           </div>
         </>
@@ -134,7 +131,7 @@ function RecoTab() {
         <div className="card">
           <div className="card-head"><h3>How it works</h3></div>
           <div className="card-pad muted" style={{ fontSize: 13.5 }}>
-            Irrigation advice compares forecast rainfall, recent rain, days since the last irrigation run and temperature. Spray windows need low wind and low rain probability. Crop suitability scores each crop against the field’s soil pH, current temperature, water availability, soil nitrogen and rotation history.
+            Irrigation advice compares forecast rainfall, recent rain, days since the last irrigation run and temperature. Crop suitability scores each crop against the field’s soil pH, current temperature, and water availability.
           </div>
         </div>
       </div>

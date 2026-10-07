@@ -46,7 +46,6 @@ final class Dashboard
 
         $prod = Db::all("SELECT DATE_FORMAT(h.harvest_date,'%Y-%m') AS m, SUM(h.quantity_kg - h.loss_kg) AS kg FROM harvests h JOIN plantings p ON p.id = h.planting_id WHERE h.harvest_date >= ?" . $wf('p.farm_id') . ' GROUP BY m', [$from12]);
         $out['production_monthly'] = self::series($months, $prod, 'm', 'kg');
-        $out['production_by_crop'] = Db::all("SELECT cr.name AS crop, ROUND(SUM(h.quantity_kg - h.loss_kg)) AS kg FROM harvests h JOIN plantings p ON p.id = h.planting_id JOIN crops cr ON cr.id = p.crop_id WHERE YEAR(h.harvest_date) = ?" . $wf('p.farm_id') . ' GROUP BY cr.name ORDER BY kg DESC LIMIT 8', [$year]);
         $out['actual_production_kg_ytd'] = (float) Db::val("SELECT IFNULL(SUM(h.quantity_kg - h.loss_kg),0) FROM harvests h JOIN plantings p ON p.id = h.planting_id WHERE YEAR(h.harvest_date) = ?" . $wf('p.farm_id'), [$year]);
 
         $out['livestock'] = Db::all("SELECT species, COUNT(*) AS count FROM animals WHERE status = 'active'" . $wf('farm_id') . ' GROUP BY species ORDER BY count DESC');
@@ -63,7 +62,6 @@ final class Dashboard
                 'overdue_invoices' => (int) Db::val("SELECT COUNT(*) FROM invoices WHERE status IN ('unpaid','partial') AND due_date < CURDATE()" . $wf('farm_id')),
                 'loan_balance' => (float) Db::val("SELECT IFNULL(SUM(balance),0) FROM loans WHERE status = 'active'" . $wf('farm_id')),
             ];
-            $out['expense_by_category'] = Db::all("SELECT category, ROUND(SUM(amount)) AS amount FROM transactions WHERE txn_type = 'expense' AND YEAR(txn_date) = ?" . $wf('farm_id') . ' GROUP BY category ORDER BY amount DESC', [$year]);
         }
 
         $inv = Db::one('SELECT SUM(quantity <= reorder_level AND reorder_level > 0) AS low, SUM(expiry_date IS NOT NULL AND DATEDIFF(expiry_date, CURDATE()) <= 30 AND quantity > 0) AS expiring, IFNULL(SUM(quantity * unit_cost),0) AS value, COUNT(*) AS items FROM inventory_items WHERE 1=1' . $wf('farm_id'));
@@ -87,11 +85,7 @@ final class Dashboard
             'litres_30d' => (float) Db::val("SELECT IFNULL(SUM(s.actual_volume_litres),0) FROM irrigation_schedules s JOIN irrigation_systems i ON i.id = s.system_id WHERE s.status = 'done' AND s.scheduled_date >= (CURDATE() - INTERVAL 30 DAY)" . $wf('i.farm_id')),
         ];
 
-        $alertHide = match ($role) {
-            'worker' => " AND alert_type NOT IN ('overdue_invoice','loan_due','market_opportunity')",
-            'agronomist' => " AND alert_type NOT IN ('overdue_invoice','loan_due')",
-            default => '',
-        };
+        $alertHide = $role === 'worker' ? " AND alert_type <> 'market_opportunity'" : '';
         $out['market'] = $role === 'worker' ? null : Db::all(
             "SELECT cr.name AS crop, cr.id AS crop_id,
                (SELECT m.price_per_kg FROM market_prices m WHERE m.crop_id = cr.id ORDER BY m.price_date DESC, m.id DESC LIMIT 1) AS price,

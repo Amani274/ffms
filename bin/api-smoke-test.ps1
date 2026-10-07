@@ -47,9 +47,9 @@ Write-Host "`n== Core data =="
 $r = Call $admin.s 'GET' 'meta'
 Check 'meta returns resources for admin' ($r.status -eq 200 -and @($r.json.data.resources.PSObject.Properties).Count -gt 40)
 $r = Call $admin.s 'GET' 'fields?farm_id=1'
-Check 'fields list (farm 1)' ($r.status -eq 200 -and $r.json.data.Count -eq 8) "got $($r.json.data.Count)"
+Check 'fields list (farm 1)' ($r.status -eq 200 -and $r.json.data.Count -eq 6) "got $($r.json.data.Count)"
 $r = Call $admin.s 'GET' 'dashboard?farm_id=1'
-Check 'dashboard loads with KPIs' ($r.status -eq 200 -and $r.json.data.land.fields -eq 8 -and $r.json.data.finance.income_ytd -gt 0)
+Check 'dashboard loads with KPIs' ($r.status -eq 200 -and $r.json.data.land.fields -eq 6 -and $r.json.data.finance.income_ytd -gt 0)
 $r = Call $admin.s 'GET' 'weather?farm_id=1'
 Check 'weather overview has forecast' ($r.status -eq 200 -and $r.json.data.forecast.Count -ge 3)
 $r = Call $admin.s 'GET' 'predictions/yield?farm_id=1'
@@ -109,13 +109,17 @@ $hid = [int]$r.json.data.id
 $lots = @((Call $admin.s 'GET' 'storage_lots?farm_id=1&per_page=500').json.data)
 Check 'storage lot auto-created for the harvest' (@($lots | Where-Object { [int]$_.harvest_id -eq $hid }).Count -eq 1)
 
-$r = Call $admin.s 'POST' 'alerts/refresh?farm_id=1' $null $admin.csrf
-Check 'alert engine refresh' ($r.status -eq 200)
+$r = Call $admin.s 'GET' 'alerts?farm_id=1&per_page=300'
+Check 'alert engine produced alerts' ($r.status -eq 200 -and @($r.json.data).Count -ge 8)
+
+$r = Call $admin.s 'POST' 'payroll/generate' @{ farm_id = 1; period_start = (Get-Date).ToString('yyyy-MM-01'); period_end = (Get-Date).ToString('yyyy-MM-dd') } $admin.csrf
+Check 'payroll generates drafts from attendance' ($r.status -eq 201 -and $r.json.data.created -ge 1) "status $($r.status) $($r.json.message)"
 
 Write-Host "`n== Role-based access =="
 $worker = Login 'worker@ffms.test'
 Check 'worker cannot read transactions (403)' ((Call $worker.s 'GET' 'transactions').status -eq 403)
-Check 'worker cannot read payroll of others (own only)' ((Call $worker.s 'GET' 'payroll_runs').json.data.Count -le 2)
+$wp = @((Call $worker.s 'GET' 'payroll_runs').json.data)
+Check 'worker sees only their own payroll' ($wp.Count -gt 0 -and @($wp | Where-Object { $_.worker_name -ne 'Joseph Phiri' }).Count -eq 0)
 $wt = @((Call $worker.s 'GET' 'tasks').json.data)
 Check 'worker sees only own tasks' ($wt.Count -gt 0 -and @($wt | Where-Object { $_.worker_name -ne 'Joseph Phiri' }).Count -eq 0)
 Check 'worker cannot read invoices (403)' ((Call $worker.s 'GET' 'invoices').status -eq 403)
@@ -125,7 +129,7 @@ Check 'worker cannot see price forecasts (403)' ((Call $worker.s 'GET' 'predicti
 $winv = @((Call $worker.s 'GET' 'inventory_items').json.data)
 Check 'worker inventory hides unit cost and value' ($winv.Count -gt 0 -and $null -eq $winv[0].unit_cost -and $null -eq $winv[0].stock_value)
 $walerts = @((Call $worker.s 'GET' 'alerts?per_page=300').json.data)
-Check 'worker alerts exclude financial alert types' ($walerts.Count -gt 0 -and @($walerts | Where-Object { $_.alert_type -in 'overdue_invoice','loan_due','market_opportunity' }).Count -eq 0)
+Check 'worker alerts exclude market-price alerts' ($walerts.Count -gt 0 -and @($walerts | Where-Object { $_.alert_type -eq 'market_opportunity' }).Count -eq 0)
 Check 'worker cannot manage users (403)' ((Call $worker.s 'GET' 'users').status -eq 403)
 Check 'worker cannot create crops (403)' ((Call $worker.s 'POST' 'crops' @{ name = 'X'; days_to_maturity = 10; expected_yield_kg_ha = 1 } $worker.csrf).status -eq 403)
 Check 'worker cannot open financial report (403)' ((Call $worker.s 'GET' 'reports/financial').status -eq 403)
@@ -134,14 +138,12 @@ Check 'accountant can read transactions' ((Call $acct.s 'GET' 'transactions').st
 Check 'accountant cannot create fields (403)' ((Call $acct.s 'POST' 'fields' @{ farm_id = 1; name = 'Z'; size_ha = 1 } $acct.csrf).status -eq 403)
 $mgr2 = Login 'manager2@ffms.test'
 $mf = (Call $mgr2.s 'GET' 'fields?farm_id=1').json.data
-Check 'farm-scoped manager cannot see another farm (data isolation)' (($mf | Where-Object { $_.farm_id -ne 2 }).Count -eq 0 -and $mf.Count -eq 3) "got $($mf.Count)"
+Check 'farm-scoped manager cannot see another farm (data isolation)' (($mf | Where-Object { $_.farm_id -ne 2 }).Count -eq 0 -and $mf.Count -eq 1) "got $($mf.Count)"
 Check 'farm-scoped manager cannot fetch other farm record (404)' ((Call $mgr2.s 'GET' 'fields/1').status -eq 404)
 $agro = Login 'agronomist@ffms.test'
 Check 'agronomist can record scouting' ((Call $agro.s 'POST' 'scouting_reports' @{ field_id = 3; report_date = $today; severity = 'low'; affected_area_pct = 2 } $agro.csrf).status -eq 201)
 Check 'agronomist cannot read invoices (403)' ((Call $agro.s 'GET' 'invoices').status -eq 403)
 Check 'agronomist cannot read purchase orders (403)' ((Call $agro.s 'GET' 'purchase_orders').status -eq 403)
-$aalerts = @((Call $agro.s 'GET' 'alerts?per_page=300').json.data)
-Check 'agronomist alerts exclude receivable and loan alerts' (@($aalerts | Where-Object { $_.alert_type -in 'overdue_invoice','loan_due' }).Count -eq 0)
 Check 'manager can read invoices' ((Call (Login 'manager@ffms.test').s 'GET' 'invoices').status -eq 200)
 
 Write-Host "`n== Admin =="

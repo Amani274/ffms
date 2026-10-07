@@ -122,24 +122,12 @@ final class AlertEngine
         foreach (Db::all("SELECT DISTINCT l.crop_id, cr.name FROM storage_lots l JOIN warehouses w ON w.id = l.warehouse_id JOIN crops cr ON cr.id = l.crop_id WHERE w.farm_id = ? AND l.status = 'stored' AND l.quantity_kg > 0", [$farmId]) as $c) {
             $f = Predict::priceForecast((int) $c['crop_id']);
             if (!$f['available']) continue;
-            $avg = array_sum(array_column($f['history'], 'price')) / max(1, count($f['history']));
             $tail = array_slice($f['history'], -12);
             $avg12 = array_sum(array_column($tail, 'price')) / max(1, count($tail));
             if ($avg12 > 0 && $f['current_price'] >= $avg12 * 1.10) {
                 $add('market_opportunity', 'info', 'Strong price for ' . $c['name'], sprintf('Market price K%.2f/kg is %.0f%% above the 12-month average. You have stock in storage — consider selling.', $f['current_price'], ($f['current_price'] / $avg12 - 1) * 100), 'crops', (int) $c['crop_id'], null, "mkt:{$c['crop_id']}");
             }
-            unset($avg);
         }
-        // Receivables & loans
-        foreach (Db::all("SELECT i.id, i.invoice_no, i.due_date, ROUND(i.amount - i.amount_paid,2) AS bal, cu.name AS customer, DATEDIFF(CURDATE(), i.due_date) AS late FROM invoices i JOIN sales_orders o ON o.id = i.order_id JOIN customers cu ON cu.id = o.customer_id WHERE i.farm_id = ? AND i.status IN ('unpaid','partial') AND i.due_date < CURDATE()", [$farmId]) as $i) {
-            $add('overdue_invoice', (int) $i['late'] > 30 ? 'critical' : 'warning', 'Overdue invoice ' . $i['invoice_no'], "{$i['customer']} owes K{$i['bal']} ({$i['late']} days late).", 'invoices', (int) $i['id'], $i['due_date'], "inv:{$i['id']}");
-        }
-        foreach (Db::all("SELECT id, lender, balance, end_date, DATEDIFF(end_date, CURDATE()) AS d FROM loans WHERE farm_id = ? AND status = 'active' AND DATEDIFF(end_date, CURDATE()) <= 30", [$farmId]) as $l) {
-            $add('loan_due', (int) $l['d'] < 0 ? 'critical' : 'warning', 'Loan maturing: ' . $l['lender'], "Balance K{$l['balance']} due " . $l['end_date'] . '.', 'loans', (int) $l['id'], $l['end_date'], "loan:{$l['id']}");
-        }
-        // Overdue tasks
-        $overdue = (int) Db::val("SELECT COUNT(*) FROM tasks WHERE farm_id = ? AND status <> 'done' AND due_date < CURDATE()", [$farmId]);
-        if ($overdue > 0) $add('tasks', 'warning', "$overdue overdue task(s)", 'Review the task board and reassign or complete overdue work.', 'tasks', null, null, 'tasks:overdue');
 
         return self::persist($farmId, $found, $today);
     }
@@ -158,7 +146,7 @@ final class AlertEngine
             if ($stmt->rowCount() === 1) {
                 $new++;
                 if (in_array($a['sev'], ['critical', 'warning'], true)) {
-                    Notifier::queue($farmId, (int) Db::pdo()->lastInsertId(), $a['sev'], $a['title'], $a['msg']);
+                    Notifier::notify($farmId, $a['sev'], $a['title'], $a['msg']);
                 }
             }
         }
@@ -176,24 +164,15 @@ final class AlertEngine
     }
 }
 
-/** Queues email/SMS notifications. Swap `deliver()` for an SMTP/SMS gateway to go live. */
+/** Notification hook: critical/warning alerts are appended to storage/logs/notifications.log. Replace with an SMTP/SMS gateway call to go live. */
 final class Notifier
 {
-    public static function queue(int $farmId, int $alertId, string $severity, string $title, string $message): void
+    public static function notify(int $farmId, string $severity, string $title, string $message): void
     {
-        $driver = Env::get('NOTIFY_DRIVER', 'simulate');
-        $users = Db::all("SELECT email, phone FROM users WHERE active = 1 AND role IN ('owner','manager') AND (farm_id IS NULL OR farm_id = ?)", [$farmId]);
-        foreach ($users as $u) {
-            $channels = [['email', $u['email']]];
-            if ($severity === 'critical' && $u['phone']) $channels[] = ['sms', $u['phone']];
-            foreach ($channels as [$channel, $to]) {
-                $status = $driver === 'simulate' ? 'simulated' : 'queued';
-                Db::insert('notification_outbox', [
-                    'farm_id' => $farmId, 'channel' => $channel, 'recipient' => $to, 'subject' => mb_substr($title, 0, 190),
-                    'body' => mb_substr($message, 0, 500), 'status' => $status, 'alert_id' => $alertId,
-                    'sent_at' => $status === 'simulated' ? gmdate('Y-m-d H:i:s') : null,
-                ]);
-            }
-        }
+        $dir = dirname(__DIR__, 2) . '/storage/logs';
+        if (!is_dir($dir)) @mkdir($dir, 0775, true);
+        $to = implode(', ', array_column(Db::all("SELECT email FROM users WHERE active = 1 AND role IN ('owner','manager') AND (farm_id IS NULL OR farm_id = ?)", [$farmId]), 'email'));
+        @file_put_contents("$dir/notifications.log", sprintf("%s [%s] farm=%d to=%s | %s — %s
+", gmdate('c'), $severity, $farmId, $to, $title, $message), FILE_APPEND);
     }
 }

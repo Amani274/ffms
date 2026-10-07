@@ -296,7 +296,7 @@ final class Registry
             'read' => $ALL, 'write' => $FIELD, 'ops' => ['list', 'get', 'create'], 'filters' => ['item_id', 'movement_type'], 'date_col' => 't.movement_date',
             'custom_create' => true,
             'cols' => [
-                'item_id' => 'int!|fk:inventory_items', 'movement_type' => 'enum:in,out,adjust!', 'quantity' => 'dec:0,1000000000!',
+                'item_id' => 'int!|fk:inventory_items', 'movement_type' => 'enum:in,out!', 'quantity' => 'dec:0,1000000000!',
                 'unit_cost' => 'dec:0,1000000000|default:0', 'movement_date' => 'date!', 'reference' => 'str:120', 'notes' => 'str:255',
             ],
         ];
@@ -579,12 +579,6 @@ final class Registry
                 'status' => 'enum:active,paid,defaulted|default:active',
             ],
         ];
-        $r['loan_payments'] = [
-            'table' => 'loan_payments', 'label' => 'Loan repayment', 'scope' => 'l.farm_id', 'order' => 't.payment_date DESC',
-            'join' => 'JOIN loans l ON l.id = t.loan_id', 'select' => 't.*, l.lender',
-            'read' => $FINR, 'write' => $FIN, 'ops' => ['list', 'get', 'create', 'delete'], 'delete' => ['admin', 'owner'], 'filters' => ['loan_id'],
-            'cols' => ['loan_id' => 'int!|fk:loans', 'payment_date' => 'date!', 'amount' => 'dec:0.01,100000000000!', 'notes' => 'str:190'],
-        ];
 
         // ---------- 10. Weather ----------
         $r['weather_records'] = [
@@ -598,17 +592,10 @@ final class Registry
 
         // ---------- 19. Alerts & notifications ----------
         $r['alerts'] = [
-            'hide' => [
-                'worker' => "t.alert_type NOT IN ('overdue_invoice','loan_due','market_opportunity')",
-                'agronomist' => "t.alert_type NOT IN ('overdue_invoice','loan_due')",
-            ],
+            'hide' => ['worker' => "t.alert_type <> 'market_opportunity'"],
             'table' => 'alerts', 'label' => 'Alert', 'scope' => 't.farm_id', 'order' => "FIELD(t.severity,'critical','warning','info'), t.created_at DESC",
             'read' => $ALL, 'write' => $ALL, 'ops' => ['list', 'get', 'update'], 'filters' => ['status', 'severity', 'alert_type'],
             'cols' => ['status' => 'enum:new,read,resolved'],
-        ];
-        $r['notification_outbox'] = [
-            'table' => 'notification_outbox', 'label' => 'Notification', 'scope' => 't.farm_id', 'order' => 't.id DESC',
-            'read' => $OPS, 'write' => [], 'ops' => ['list', 'get'], 'filters' => ['channel', 'status'], 'cols' => [],
         ];
 
         // ---------- 21. Security ----------

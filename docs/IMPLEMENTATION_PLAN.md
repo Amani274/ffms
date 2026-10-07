@@ -1,109 +1,56 @@
 # Implementation plan and code map
 
-How FFMS was built, in the order it was built, with what each section contains. Line counts are current
-(`wc -l`). Counts understate volume in a few files (`Registry.php`, `resources.js`, `Alerts.php`) because their lines are long.
-
 ## Build order
 
-1. **Reference review** — read `hrm-system-main` (API + shared bootstrap, numbered migrations, CLI seed, React front end, docs) and the brief.
-2. **Decisions** — React/Vite, MySQL (ships with XAMPP), rule-based predictions (no paid AI service).
-3. **Schema** — four numbered migrations, grouped by domain.
-4. **API core** — config, DB, validation, auth, then one generic CRUD engine driven by a single resource registry (instead of one PHP file per endpoint like HRM).
-5. **Business rules** — hooks that keep stock, ledger, invoices and storage consistent; multi-row documents; weather, predictions, alerts, reports, dashboard.
-6. **Tooling** — migrate, seed, backup, create-admin, API smoke test.
-7. **Front end** — shared shell and components, a config-driven screen for every resource, custom pages where a table is not enough.
-8. **Verification** — 67 API checks, browser walk-through of every route, phone-width check, backup restore test; defects found were fixed (yield maths, role data leaks, `.env` exposure).
-9. **Render packaging** — Dockerfile, start script, Blueprint (see `RENDER_DEPLOYMENT.md`).
+1. Reviewed `hrm-system-main` (API + shared bootstrap, numbered migrations, CLI seed, React front end) and the brief.
+2. Decisions: React/Vite, MySQL (ships with XAMPP), rule-based predictions.
+3. Schema → API core → one generic CRUD engine driven by a resource registry (instead of one PHP file per endpoint) → business hooks → weather, predictions, alerts, reports, dashboard.
+4. Tooling (migrate, seed, backup, create-admin, API tests) → front end → verification → Render packaging.
+5. **Brief audit and trim** (below).
 
-## Database — `database/migrations/` (848 lines, 56 tables)
+## Code map (current)
 
-| File | Lines | Contents |
+**Database** — 4 migrations, 54 tables, 825 lines: `001_core` (farms, users, fields, audit) · `002_resources` (suppliers, inventory, equipment, labour, payroll) ·
+`003_production` (crops, pests, irrigation, livestock, storage, harvest) · `004_business` (sales, procurement, ledger, budgets, loans, weather, alerts).
+
+**API** — `api/`, 3,181 lines
+
+| File | Lines | Role |
 |---|---|---|
-| `001_core.sql` | 88 | farms, users, fields, field history, audit log, login attempts |
-| `002_resources.sql` | 184 | suppliers, inventory + stock movements, equipment (+ usage, allocation, maintenance), workers, attendance, tasks, reviews, payroll |
-| `003_production.sql` | 294 | crops, plantings, activities, growth, pests, scouting, treatments, irrigation, livestock, warehouses, harvests, storage lots |
-| `004_business.sql` | 282 | customers, prices, contracts, sales orders/lines, invoices, payments, dispatch, quotations, purchase orders, ledger, budgets, loans, weather, alerts, notification outbox |
+| `index.php` | 149 | router, sessions, CSRF, error handling |
+| `src/Core.php` | 272 | env, DB wrapper, validation rules |
+| `src/Auth.php` | 141 | login + throttling, CSRF, audit log |
+| `src/Registry.php` | 610 | every resource: columns, validation, roles, joins, farm scope |
+| `src/Crud.php` | 245 | generic list/get/create/update/delete with scoping |
+| `src/Hooks.php` | 330 | stock deduction, ledger postings, payments, harvest → storage |
+| `src/Documents.php` | 199 | sales orders, invoices, purchase-order workflow, payroll generation |
+| `src/Weather.php` | 144 | live forecast, offline fallback, risks |
+| `src/Predict.php` | 300 | yield, price forecast, irrigation + crop recommendations |
+| `src/Alerts.php` | 178 | alert engine (15 types), notification log hook |
+| `src/Dashboard.php` · `Reports.php` · `Admin.php` | 104 · 274 · 235 | dashboard, 13 reports, users/backups/metadata |
 
-## API engine — `api/` (2,900 lines)
+**Tools** — `bin/`: `migrate` 54 · `seed` 470 · `backup` 26 · `create-admin` 40 · `api-smoke-test.ps1` 161.
+**Front end** — `frontend/src/`, 2,011 lines: shell/auth/api/format (`App`, `auth`, `api`, `format`, `main`) · `ui.jsx` 252 (modal, table, generic form from server metadata) ·
+`resources.js` 140 (screen config) · `ResourcePage` 164 (one screen for ~45 resources) · `Documents` 129 · `Dashboard` 167 · `Fields` 61 · `Weather` 94 · `Predictions` 167 · `Reports` 74 · `Alerts` 51 · `AdminPages` 110 · `LoginPage` 67 · `charts` 39 · `styles` 187.
+**Deploy** — `Dockerfile`, `render.yaml`, `docker/` (168 lines).
 
-| File | Lines | What it does |
-|---|---|---|
-| `index.php` | 159 | Router: public routes, session, CSRF, custom endpoints, falls through to generic CRUD; JSON error handling |
-| `src/Core.php` | 272 | `Env` loader, `Db` (PDO wrapper, transactions, SSL option), `Validator` (rule mini-language), JSON helpers |
-| `src/Auth.php` | 141 | Sessions, login + throttling, CSRF check, password rules, `Audit` logger |
-| `src/Registry.php` | 623 | **Single source of truth**: every resource's columns, validation, roles, joins, farm scope, worker-only rules, redaction |
-| `src/Crud.php` | 245 | Generic list/get/create/update/delete with filters, search, date range, paging, farm + role scoping |
-| `src/Hooks.php` | 358 | Business rules on write: stock deduction, ledger postings, payment → invoice, harvest → storage lot, dispatch, loan balance; `Ledger` and `Stock` helpers |
-| `src/Documents.php` | 230 | Sales orders with lines, invoicing, purchase-order workflow (submit → approve → order → receive → pay), payroll generation |
-| `src/Weather.php` | 144 | Live 7-day forecast (Open-Meteo), cache, offline climatology fallback, risk detection |
-| `src/Predict.php` | 344 | Yield prediction with factor breakdown, price forecast, irrigation/spray advice, crop suitability |
-| `src/Alerts.php` | 199 | Alert engine (18 types, auto-clearing), notification outbox |
-| `src/Dashboard.php` | 110 | Dashboard aggregates, role-aware (finance hidden from field roles) |
-| `src/Reports.php` | 291 | 13 reports + CSV export |
-| `src/Admin.php` | 235 | `/meta` (UI permissions), `/options` (dropdowns), user management, backups |
+## Brief audit result
 
-## Command-line tools — `bin/` (1,150 lines)
+About 195 requirement bullets across 21 sections; every section is implemented, and almost every table traces to an explicit bullet. Named items kept exactly: the 13 reports,
+the 6 roles, the 12 alert types, the dashboard list, and sections 16–17 (including demand trends). Thin but sufficient: land-use planning, breed, seedling and market-destination
+fields, supplier rating, productivity (task hours), historical weather. Partial: SMS/email delivery (alerts are written to `storage/logs/notifications.log` — no gateway).
 
-| File | Lines | Purpose |
-|---|---|---|
-| `migrate.php` | 54 | Apply pending migrations; `--fresh` rebuilds |
-| `seed.php` | 713 | Demo dataset (two farms, a year of history), dated relative to today |
-| `backup.php` | 26 | SQL dump + pruning |
-| `create-admin.php` | 40 | Create a real administrator without demo data |
-| `api-smoke-test.ps1` | 159 | 67 end-to-end checks: auth, validation, workflows, role isolation |
+## What was trimmed (beyond-the-brief depth)
 
-## Front end — `frontend/src/` (2,089 lines)
+Removed: loan repayments table/screen · notification outbox table/screen · 3 extra alert types (overdue invoice, loan due, overdue tasks) · alert type/severity filters and manual re-evaluate
+(alerts now refresh when the dashboard opens) · delivered-order auto-dispatch · stock "adjust" movements · spray-window advice · crop-rotation/nitrogen scoring · price confidence bands ·
+payroll deduction percentage and date dialog (now a one-click "generate last month") · duplicate dashboard/weather charts · CSV export · print · dark mode.
+Kept on purpose: per-role data hardening, login throttling, change-password, create-admin, backups, the 24-month price table (the seasonal forecast needs it).
+Demo data cut to 3 months and scaled down (6 fields, 5 crops, 6 workers, 19 animals, 15 inventory items, 12 orders). Seven docs merged into three.
 
-| File | Lines | Purpose |
-|---|---|---|
-| `main.jsx`, `App.jsx` | 144 | Entry, routing, sidebar/topbar shell, role-filtered navigation, change-password |
-| `api.js`, `auth.jsx`, `format.js` | 165 | HTTP client (CSRF, farm scoping), session/farm state, money/date formatting |
-| `ui.jsx` | 252 | Modal, table, badges, form fields, **generic create/edit form built from server metadata** |
-| `resources.js` | 143 | Per-resource screen config: columns, filters, row actions (also the sidebar map) |
-| `charts.jsx`, `styles.css` | 237 | Chart.js wrappers; design system (light/dark, responsive) |
-| `pages/ResourcePage.jsx` | 154 | The one screen used by ~50 resources |
-| `pages/Documents.jsx` | 161 | Order/PO builder, lines viewer, pay and payroll dialogs |
-| `pages/Dashboard.jsx` | 186 | KPIs, charts, alerts, weather, harvests, pests, irrigation, stock, prices |
-| `pages/FieldsPage.jsx` | 61 | Leaflet map of field boundaries + field register |
-| `pages/WeatherPage.jsx` | 102 | Forecast, risks, history charts |
-| `pages/PredictionsPage.jsx` | 170 | Yield outlook, price forecast, recommendations |
-| `pages/ReportsPage.jsx` | 77 | Report runner, CSV export, print |
-| `pages/AlertsPage.jsx` | 60 | Alert list with resolve / re-evaluate |
-| `pages/AdminPages.jsx` | 110 | Users & roles, backups |
-| `pages/LoginPage.jsx` | 67 | Sign-in with demo-account shortcuts |
+**Result:** PHP 4,184 → 3,771 · React 2,089 → 2,011 · SQL 848 → 825 · seed 713 → 470 · markdown 451 → ~150. The runtime code shrank about 7% — most of what was beyond the brief was small;
+the bulk of the code is the brief itself. `hrm-system-main` for comparison: PHP 10,369 (136 files), React 6,145.
 
-## Deployment files (new)
+## Remaining scope decision
 
-`Dockerfile` (40) · `docker/start.sh` (68) · `docker/apache.conf` (22) · `docker/mariadb.cnf` (10) · `render.yaml` (28)
-
----
-
-## Size review: can it be smaller?
-
-Totals: **PHP 4,184 · React 2,089 · SQL 848** (about 7,100). For comparison, `hrm-system-main` is **PHP 10,369 (136 files) · React 6,145 · SQL 810**,
-so FFMS is roughly 40% of HRM's size. It is much larger than your coursework projects (`task1` ≈ 650 lines) because it adds what those do not have:
-login/roles/CSRF, validation, audit, farm isolation, a ledger, forecasting and reports.
-
-The registry design already replaced what would be ~55 endpoint files in HRM's style. If you want it smaller, these are the options — **none applied**:
-
-| Option | Removes | Est. lines saved | Trade-off |
-|---|---|---|---|
-| Slim the demo seed (one farm, 6 months, fewer records) | most of `seed.php` | ~350–450 | demo looks emptier, charts thinner |
-| Drop low-value resources (field history, reviews, allocations, loan payments, quotations, breeding, outbox) | registry + screens + tables | ~300 | fewer brief items covered |
-| 13 → 6 core reports | `Reports.php` | ~130 | fewer analytics |
-| 18 → ~8 alert types | `Alerts.php` | ~80 | less proactive |
-| Drop crop-suitability + recommendations | `Predict.php`, Predictions tab | ~150 | loses weather-based advice |
-| Remove purchase-order workflow and payroll generation (keep plain records) | `Documents.php`, `Hooks.php` | ~200 | less automation |
-| Drop weather charts page / map | 2 pages | ~160 | less visual |
-| **All of the above** | | **~1,300–1,500 (≈20%)** | a thinner brief coverage |
-
-Honest recommendation: leave the engine (Registry, Crud, Hooks) alone — it is what keeps the code small relative to the feature count.
-If the goal is "looks like the pre-existing projects", the realistic lever is scope (fewer modules), not tidier code.
-
-## Next steps
-
-1. Push the project to GitHub and deploy on Render (`RENDER_DEPLOYMENT.md`) — demo mode needs no external database.
-2. Open the deployed URL and run the demo guide once per role; note anything that behaves differently from localhost.
-3. Decide the scope question above before the final submission (keep, or trim to a defined subset).
-4. For a persistent public deployment: point `DB_*` at a managed MySQL/MariaDB, set `SEED_ON_START=0`, create a real admin, hide demo hints (see `LAUNCH_CHECKLIST.md`).
-5. Optional hardening: SMTP/SMS delivery, scheduled alert job, PDF invoices.
+Shrinking further means dropping whole brief modules (e.g. livestock or storage ≈ 400–700 lines each across schema, API and screens). That is a requirements decision for the group.

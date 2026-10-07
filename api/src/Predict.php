@@ -179,9 +179,6 @@ final class Predict
         }
         $slope = $den > 0 ? $num / $den : 0.0;
         $icpt = $my - $slope * $mx;
-        $res = [];
-        foreach ($xs as $k => $x) $res[] = $ys[$k] - ($icpt + $slope * $x);
-        $sd = sqrt(array_sum(array_map(fn($e) => $e * $e, $res)) / max(1, $n - 2));
 
         $last = end($series);
         $forecast = [];
@@ -190,7 +187,7 @@ final class Predict
             $ts = strtotime("+$h months", $lastTs);
             $m = (int) date('n', $ts);
             $p = max(0.01, ($icpt + $slope * ($n - 1 + $h)) * $idx[$m]);
-            $forecast[] = ['month' => date('Y-m', $ts), 'price' => round($p, 2), 'low' => round(max(0, $p - 1.28 * $sd * $idx[$m]), 2), 'high' => round($p + 1.28 * $sd * $idx[$m], 2)];
+            $forecast[] = ['month' => date('Y-m', $ts), 'price' => round($p, 2)];
         }
         $best = $forecast[0];
         foreach ($forecast as $f) if ($f['price'] > $best['price']) $best = $f;
@@ -216,7 +213,7 @@ final class Predict
             'best_month' => $best['month'], 'best_price' => $best['price'], 'upside_pct' => $current > 0 ? round(($best['price'] - $current) / $current * 100, 1) : 0,
             'volatility_pct' => round($vol * 100, 1), 'risk' => $vol < 0.08 ? 'low' : ($vol < 0.16 ? 'medium' : 'high'),
             'demand_trend' => $dRecent > $dPrev + 0.2 ? 'strengthening' : ($dRecent < $dPrev - 0.2 ? 'weakening' : 'steady'),
-            'method' => 'Seasonally adjusted linear trend on monthly average market prices (80% band)',
+            'method' => 'Seasonally adjusted linear trend on monthly average market prices',
         ];
     }
 
@@ -263,19 +260,6 @@ final class Predict
             }
         }
 
-        // Spray window
-        $open = (int) Db::val("SELECT COUNT(*) FROM scouting_reports sr JOIN fields fl ON fl.id = sr.field_id WHERE fl.farm_id = ? AND sr.status <> 'resolved' AND sr.severity IN ('medium','high','critical')", [$farmId]);
-        if ($open > 0) {
-            $win = null;
-            foreach ($forecast as $f) if ((float) $f['wind_kph'] < 15 && (float) $f['rain_probability_pct'] < 30) {
-                $win = $f;
-                break;
-            }
-            $recs[] = $win
-                ? ['type' => 'spraying', 'severity' => 'info', 'title' => 'Best spraying window: ' . date('D j M', strtotime($win['forecast_date'])), 'message' => sprintf('%d open pest/disease report(s) need treatment. Low wind (%.0f km/h) and %.0f%% rain chance on that day.', $open, $win['wind_kph'], $win['rain_probability_pct'])]
-                : ['type' => 'spraying', 'severity' => 'warning', 'title' => 'No ideal spraying window this week', 'message' => "$open open pest/disease report(s) need treatment, but wind or rain is unfavourable for the next 7 days."];
-        }
-
         // Crop suitability by field
         $mean = $stats['mean_temp'] ?? ($forecast ? ((float) $forecast[0]['temp_min_c'] + (float) $forecast[0]['temp_max_c']) / 2 : 22.0);
         $rain30 = Weather::stats($farmId, 30)['rain_mm'];
@@ -283,12 +267,6 @@ final class Predict
         $suit = [];
         foreach (Db::all("SELECT f.*, EXISTS(SELECT 1 FROM irrigation_systems i WHERE i.field_id = f.id AND i.status IN ('operational','maintenance')) AS irrigated FROM fields f WHERE f.farm_id = ? AND f.land_use = 'cropping' AND f.status <> 'retired'", [$farmId]) as $fl) {
             $scored = [];
-            $prev = Db::one(
-                "SELECT p.crop_id, cr.category, cr.name FROM plantings p JOIN crops cr ON cr.id = p.crop_id
-                 WHERE p.field_id = ? AND p.status IN ('growing','harvested') ORDER BY p.planting_date DESC, p.id DESC LIMIT 1",
-                [$fl['id']]
-            );
-            $nitrogen = $fl['nitrogen_ppm'] !== null ? (float) $fl['nitrogen_ppm'] : null;
             foreach ($crops as $c) {
                 $phScore = 0.7;
                 $why = [];
@@ -311,29 +289,7 @@ final class Predict
                 } else {
                     $why[] = sprintf('%.0f mm rain in 30 days', $rain30);
                 }
-                // soil fertility: nitrogen matters for non-legumes; legumes fix their own
-                $fScore = 0.8;
-                if ($c['category'] === 'legume') {
-                    $fScore = 1.0;
-                    $why[] = 'legume restores nitrogen';
-                } elseif ($nitrogen !== null) {
-                    $fScore = min(1.0, $nitrogen / 38);
-                    if ($fScore < 0.8) $why[] = sprintf('low soil N (%.0f ppm)', $nitrogen);
-                }
-                // rotation: avoid repeating the last crop or its family
-                $rScore = 1.0;
-                if ($prev) {
-                    if ((int) $prev['crop_id'] === (int) $c['id']) {
-                        $rScore = 0.3;
-                        $why[] = 'same crop as the last planting';
-                    } elseif ($prev['category'] === $c['category']) {
-                        $rScore = 0.7;
-                        $why[] = 'same family as ' . $prev['name'];
-                    } else {
-                        $why[] = 'good rotation after ' . $prev['name'];
-                    }
-                }
-                $score = 0.40 * $phScore + 0.25 * $tScore + 0.15 * $wScore + 0.10 * $fScore + 0.10 * $rScore;
+                $score = 0.5 * $phScore + 0.3 * $tScore + 0.2 * $wScore;
                 $scored[] = ['crop_id' => (int) $c['id'], 'crop' => $c['name'] . ($c['variety'] ? ' – ' . $c['variety'] : ''), 'score' => (int) round($score * 100), 'reasons' => $why];
             }
             usort($scored, fn($a, $b) => [$b['score'], $a['crop']] <=> [$a['score'], $b['crop']]);

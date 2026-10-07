@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { useApp } from '../auth';
-import { BarChart, DonutChart, LineChart } from '../charts';
+import { BarChart, DonutChart } from '../charts';
 import { daysLabel, humanize, kg, money, monthLabel, num, shortDate } from '../format';
 import { Badge, Empty, PageHead, Spinner, Stat, useAsync } from '../ui';
 
@@ -15,12 +15,8 @@ const wxIcon = (c = '') => {
 };
 
 export default function Dashboard() {
-  const { user, farm, farmId, version, toast, refresh, can } = useApp();
+  const { user, farm, farmId, version, refresh } = useApp();
   const { data, loading, error, reload } = useAsync(() => api.get('dashboard').then((r) => r.data), [farmId, version]);
-
-  const refreshAlerts = async () => {
-    try { await api.post('alerts/refresh'); toast('Alerts refreshed'); reload(); } catch (e) { toast(e.message, 'err'); }
-  };
 
   if (error) return <div className="alert-box bad">{error.message}</div>;
   if (loading || !data) return <Spinner label="Loading dashboard…" />;
@@ -35,7 +31,6 @@ export default function Dashboard() {
   return (
     <>
       <PageHead title={`${greeting}, ${user.name.split(' ')[0]}`} subtitle={`${farm?.name || 'All farms'} — ${new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}`}>
-        {can('alerts', 'update') && <button className="btn" onClick={refreshAlerts}>↻ Refresh alerts</button>}
         <button className="btn" onClick={() => { reload(); refresh(); }}>Reload</button>
       </PageHead>
 
@@ -128,20 +123,6 @@ export default function Dashboard() {
             {d.crop_stages.length ? <DonutChart labels={d.crop_stages.map((s) => `${humanize(s.stage)} (${s.plantings})`)} values={d.crop_stages.map((s) => Number(s.area_ha))} /> : <Empty title="No active crops" />}
           </div>
           <div className="muted" style={{ padding: '0 18px 12px', fontSize: 12.5 }}>Share of planted area by stage</div>
-        </div>
-      </div>
-
-      <div className="grid g2" style={{ marginBottom: 14 }}>
-        <div className="card">
-          <div className="card-head"><h3>Harvest output</h3><span className="sub">net kg per month</span></div>
-          <div className="chart-box short"><LineChart labels={d.production_monthly.map((m) => monthLabel(m.month))} datasets={[{ label: 'Harvested (kg)', data: d.production_monthly.map((m) => m.value), fill: true }]} legend={false} /></div>
-        </div>
-        <div className="card">
-          <div className="card-head"><h3>{fin ? 'Expenses by category' : 'Production by crop'}</h3><span className="sub">this year</span></div>
-          <div className="chart-box short">
-            {fin ? <DonutChart labels={d.expense_by_category.map((e) => humanize(e.category))} values={d.expense_by_category.map((e) => Number(e.amount))} />
-              : <DonutChart labels={d.production_by_crop.map((e) => e.crop)} values={d.production_by_crop.map((e) => Number(e.kg))} />}
-          </div>
         </div>
       </div>
 

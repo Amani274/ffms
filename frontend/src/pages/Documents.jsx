@@ -126,36 +126,4 @@ export function PayModal({ po, onClose, onSaved }) {
   );
 }
 
-export function PayrollModal({ onClose, onSaved }) {
-  const { farmId, toast } = useApp();
-  const first = new Date(); first.setDate(1);
-  const prevEnd = new Date(first.getTime() - 86400000);
-  const prevStart = new Date(prevEnd.getFullYear(), prevEnd.getMonth(), 1);
-  const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  const [start, setStart] = useState(fmt(prevStart));
-  const [end, setEnd] = useState(fmt(prevEnd));
-  const [msg, setMsg] = useState('');
-  const [busy, setBusy] = useState(false);
-  const run = async (e) => {
-    e.preventDefault(); setBusy(true); setMsg('');
-    try {
-      const { data } = await api.post('payroll/generate', { farm_id: farmId, period_start: start, period_end: end });
-      toast(data.created ? `${data.created} draft payroll record(s) generated` : 'No new records — payroll for this period already exists');
-      onSaved();
-    } catch (err) { setMsg(err.message); } finally { setBusy(false); }
-  };
-  return (
-    <Modal title="Generate payroll" size="narrow" onClose={onClose} footer={<><button className="btn" onClick={onClose}>Cancel</button><button className="btn primary" form="payroll-form" disabled={busy}>{busy ? 'Generating…' : 'Generate drafts'}</button></>}>
-      <form id="payroll-form" onSubmit={run}>
-        {msg && <div className="alert-box bad">{msg}</div>}
-        <p className="muted" style={{ marginTop: 0 }}>Creates a draft for every active worker from attendance in the period (daily/hourly) or the monthly rate. Statutory deduction is applied automatically. Review, then mark each as paid.</p>
-        <div className="form-grid">
-          <div className="field"><label>Period start</label><input className="input" type="date" value={start} onChange={(e) => setStart(e.target.value)} /></div>
-          <div className="field"><label>Period end</label><input className="input" type="date" value={end} onChange={(e) => setEnd(e.target.value)} /></div>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
 export { Confirm };

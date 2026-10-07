@@ -65,24 +65,6 @@ final class Documents
         Db::update('purchase_orders', $poId, ['total_amount' => round($total, 2)]);
     }
 
-    /** Mark a delivered order's storage lots as dispatched. */
-    public static function fulfilOrder(int $orderId): void
-    {
-        $order = Db::one('SELECT customer_id, delivery_date, order_date FROM sales_orders WHERE id = ?', [$orderId]);
-        $cust = Db::one('SELECT name, address FROM customers WHERE id = ?', [$order['customer_id']]);
-        foreach (Db::all('SELECT * FROM sales_order_items WHERE order_id = ? AND lot_id IS NOT NULL', [$orderId]) as $it) {
-            if (Db::val('SELECT 1 FROM dispatches WHERE order_id = ? AND lot_id = ?', [$orderId, $it['lot_id']])) continue;
-            $lot = Db::one('SELECT quantity_kg FROM storage_lots WHERE id = ? FOR UPDATE', [$it['lot_id']]);
-            $qty = min((float) $it['quantity_kg'], (float) $lot['quantity_kg']);
-            if ($qty <= 0) continue;
-            Db::insert('dispatches', [
-                'lot_id' => $it['lot_id'], 'order_id' => $orderId, 'dispatch_date' => $order['delivery_date'] ?? gmdate('Y-m-d'),
-                'quantity_kg' => $qty, 'destination' => $cust['name'], 'status' => 'delivered',
-            ]);
-            Db::exec('UPDATE storage_lots SET quantity_kg = quantity_kg - ? WHERE id = ?', [$qty, $it['lot_id']]);
-            Db::exec("UPDATE storage_lots SET status = IF(quantity_kg <= 0.0001, 'dispatched', status) WHERE id = ?", [$it['lot_id']]);
-        }
-    }
 }
 
 final class Actions
@@ -186,11 +168,10 @@ final class Actions
         }
         if ($end < $start) fail(422, 'The period end must not be before the start.');
         $farm = Crud::writeFarm(['user' => $user, 'farm' => null], $in);
-        $pct = (float) Env::get('PAYROLL_DEDUCTION_PCT', '5');
         $periodDays = (int) ((strtotime($end) - strtotime($start)) / 86400) + 1;
 
         $created = 0;
-        Db::tx(function () use ($farm, $start, $end, $pct, $periodDays, &$created) {
+        Db::tx(function () use ($farm, $start, $end, $periodDays, &$created) {
             foreach (Db::all("SELECT * FROM workers WHERE farm_id = ? AND status = 'active'", [$farm]) as $w) {
                 if (Db::val('SELECT 1 FROM payroll_runs WHERE worker_id = ? AND period_start = ? AND period_end = ?', [$w['id'], $start, $end])) continue;
                 $att = Db::one(
@@ -205,26 +186,14 @@ final class Actions
                     default => $rate * (float) $att['days'],
                 };
                 $gross = round($gross, 2);
-                $ded = round($gross * $pct / 100, 2);
                 Db::insert('payroll_runs', [
                     'worker_id' => $w['id'], 'period_start' => $start, 'period_end' => $end, 'days_worked' => $att['days'],
-                    'gross_pay' => $gross, 'deductions' => $ded, 'net_pay' => round($gross - $ded, 2), 'status' => 'draft',
+                    'gross_pay' => $gross, 'deductions' => 0, 'net_pay' => $gross, 'status' => 'draft',
                 ]);
                 $created++;
             }
         });
         Audit::log('generate', 'payroll_runs', null, ['farm_id' => $farm, 'period' => "$start..$end", 'created' => $created], $user);
-        reply(['created' => $created, 'deduction_pct' => $pct], 201);
-    }
-
-    /** POST alerts/refresh */
-    public static function refreshAlerts(): never
-    {
-        $ctx = Crud::context();
-        Auth::verifyCsrf();
-        $farms = $ctx['farm'] !== null ? [$ctx['farm']] : array_map('intval', array_column(Db::all('SELECT id FROM farms'), 'id'));
-        $out = [];
-        foreach ($farms as $f) $out[$f] = AlertEngine::refresh($f);
-        reply($out);
+        reply(['created' => $created], 201);
     }
 }

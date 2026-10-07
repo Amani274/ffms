@@ -85,14 +85,6 @@ export default function WeatherPage() {
               <div className="card-head"><h3>Monthly rainfall</h3><span className="sub">mm, last 24 months</span></div>
               <div className="chart-box">{data.monthly.length ? <BarChart labels={data.monthly.map((m) => monthLabel(m.month))} datasets={[{ label: 'Rainfall (mm)', data: data.monthly.map((m) => Number(m.rainfall_mm)), backgroundColor: '#2f7fb8' }]} legend={false} /> : <Empty />}</div>
             </div>
-            <div className="card">
-              <div className="card-head"><h3>Humidity</h3><span className="sub">last 60 days, %</span></div>
-              <div className="chart-box short"><LineChart labels={hist.map((h) => shortDate(h.record_date))} datasets={[{ label: 'Humidity %', data: hist.map((h) => Number(h.humidity_pct)), borderColor: '#3aa6a0', fill: true }]} legend={false} /></div>
-            </div>
-            <div className="card">
-              <div className="card-head"><h3>Wind</h3><span className="sub">last 60 days, km/h</span></div>
-              <div className="chart-box short"><LineChart labels={hist.map((h) => shortDate(h.record_date))} datasets={[{ label: 'Wind km/h', data: hist.map((h) => Number(h.wind_kph)), borderColor: '#7a5ca8' }]} legend={false} /></div>
-            </div>
           </div>
           {can('weather_records', 'create') && <p className="muted" style={{ marginTop: 12 }}>Record daily observations under the “Records” tab to improve yield predictions and the offline estimate.</p>}
         </>

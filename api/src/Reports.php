@@ -271,21 +271,4 @@ final class Reports
         $cols = [self::col('metric', 'Metric'), self::col('value', 'Value', 'number'), self::col('note', 'Note')];
         return [$cols, $rows, ['Net profit' => round($inc - $exp, 2)]];
     }
-
-    public static function csv(array $report): string
-    {
-        $h = fopen('php://temp', 'r+');
-        fputcsv($h, [$report['title'], $report['from'] . ' to ' . $report['to']]);
-        fputcsv($h, array_map(fn($c) => $c['label'], $report['columns']));
-        foreach ($report['rows'] as $row) {
-            fputcsv($h, array_map(function ($c) use ($row) {
-                $v = $row[$c['key']] ?? '';
-                return is_string($v) && preg_match('/^[=+\-@]/', $v) ? "'" . $v : $v;
-            }, $report['columns']));
-        }
-        rewind($h);
-        $out = stream_get_contents($h);
-        fclose($h);
-        return $out;
-    }
 }
